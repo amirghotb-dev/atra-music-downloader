@@ -1,0 +1,50 @@
+name: Auto Music Scraper & Telegram Sync
+
+on:
+  schedule:
+    # Runs automatically every day at 00:00 UTC (optional)
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allows manual run from GitHub UI with custom search query or URL
+    inputs:
+      target:
+        description: 'SoundCloud URL or Search Query (e.g. "Shadmehr" or "persian pop 2026")'
+        required: true
+        default: 'persian music 2026'
+      limit:
+        description: 'Number of tracks to scrape and upload'
+        required: false
+        default: '5'
+
+jobs:
+  scrape-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python Dependencies
+        run: |
+          pip install yt-dlp requests
+
+      - name: Run Scraper & Upload to Telegram + Site API
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          SITE_API_URL: ${{ secrets.SITE_API_URL }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          cd scrapers/soundcloud
+          TARGET="${{ github.event.inputs.target || 'persian music 2026' }}"
+          LIMIT="${{ github.event.inputs.limit || '5' }}"
+          python cli.py telegram-sync "$TARGET" --limit "$LIMIT"
