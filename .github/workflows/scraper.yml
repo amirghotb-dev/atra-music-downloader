@@ -8,9 +8,13 @@ on:
     # Allows manual run from GitHub UI with custom search query or URL
     inputs:
       target:
-        description: 'YouTube Music URL, Artist URL, SoundCloud, or Search Query (e.g. "https://music.youtube.com/@chavoshiofficial" or "Mohsen Chavoshi")'
+        description: 'Artist name, Query, SoundCloud URL, or YouTube URL (e.g. "Mohsen Chavoshi" or "https://soundcloud.com/...")'
         required: true
-        default: 'https://music.youtube.com/@chavoshiofficial'
+        default: 'Mohsen Chavoshi'
+      source:
+        description: 'Source Platform: soundcloud (recommended for cloud), auto, youtube, direct'
+        required: false
+        default: 'soundcloud'
       limit:
         description: 'Number of tracks to scrape and upload'
         required: false
@@ -57,6 +61,7 @@ jobs:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
           cd scrapers/soundcloud
-          TARGET="${{ github.event.inputs.target || 'persian music 2026' }}"
+          TARGET="${{ github.event.inputs.target || 'Mohsen Chavoshi' }}"
           LIMIT="${{ github.event.inputs.limit || '5' }}"
-          python cli.py telegram-sync "$TARGET" --limit "$LIMIT"
+          SOURCE="${{ github.event.inputs.source || 'soundcloud' }}"
+          python cli.py telegram-sync "$TARGET" --limit "$LIMIT" --source "$SOURCE"

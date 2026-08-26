@@ -69,7 +69,7 @@ class PersianMusicDirectScraper:
             cleaned_title = re.sub(r'^(دانلود\s+آهنگ\s+|دانلود\s+ترانه\s+|دانلود\s+موزیک\s+)', '', raw_title).strip()
             
             # Split Artist & Song Title
-            artist = "محسن چاوشی"
+            artist = "خواننده"
             song_title = cleaned_title
             for delim in [' - ', ' – ', ' : ']:
                 if delim in cleaned_title:
@@ -87,7 +87,7 @@ class PersianMusicDirectScraper:
             mp3_url = mp3_320 or mp3_links[0]['href']
 
             # 3. Extract Cover Art
-            img_tag = soup.find('img', class_=re.compile(r'attachment|wp-post-image|cover')) or soup.find('div', class_='post').find('img')
+            img_tag = soup.find('img', class_=re.compile(r'attachment|wp-post-image|cover')) or (soup.find('div', class_='post').find('img') if soup.find('div', class_='post') else None)
             cover_url = img_tag.get('src') if img_tag else None
 
             # 4. Extract Full Persian Lyrics
@@ -108,22 +108,29 @@ class PersianMusicDirectScraper:
             audio_path = os.path.join(self.download_audio_dir, audio_filename)
             cover_path = os.path.join(self.download_cover_dir, cover_filename)
 
-            # Download MP3 directly
+            # Download MP3 directly with short connect timeout (to avoid hanging on geo-blocked servers)
             print(f"[*] Downloading direct MP3 320k: {mp3_url} ...")
-            r_audio = requests.get(mp3_url, headers=self.headers, stream=True, timeout=60)
-            if r_audio.status_code == 200:
-                with open(audio_path, 'wb') as f:
-                    for chunk in r_audio.iter_content(chunk_size=65536):
-                        if chunk:
-                            f.write(chunk)
-            else:
-                print(f"[ERROR] Failed to download direct MP3 file: {r_audio.status_code}")
+            try:
+                r_audio = requests.get(mp3_url, headers=self.headers, stream=True, timeout=(5, 30))
+                if r_audio.status_code == 200:
+                    with open(audio_path, 'wb') as f:
+                        for chunk in r_audio.iter_content(chunk_size=65536):
+                            if chunk:
+                                f.write(chunk)
+                else:
+                    print(f"[ERROR] Failed to download direct MP3 file: {r_audio.status_code}")
+                    return None
+            except requests.exceptions.ConnectTimeout:
+                print(f"[WARN] Connection timeout for {mp3_url}. The CDN server is likely geo-restricted to Iranian IPs.")
+                return None
+            except Exception as e:
+                print(f"[ERROR] Direct MP3 download failed: {e}")
                 return None
 
             # Download Cover
             if cover_url and not os.path.exists(cover_path):
                 try:
-                    r_cover = requests.get(cover_url, headers=self.headers, timeout=15)
+                    r_cover = requests.get(cover_url, headers=self.headers, timeout=10)
                     if r_cover.status_code == 200:
                         with open(cover_path, 'wb') as f:
                             f.write(r_cover.content)
