@@ -51,8 +51,10 @@ class SoundCloudScraper:
         }
 
     def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search SoundCloud tracks by query using yt-dlp extractor."""
-        search_query = f"scsearch{limit}:{query}"
+        """Search SoundCloud tracks by query using yt-dlp extractor, filtering out DRM previews."""
+        # Fetch slightly more to filter out 30-second SoundCloud Go+ DRM previews
+        fetch_limit = min(limit * 3, 50)
+        search_query = f"scsearch{fetch_limit}:{query}"
         ydl_opts = {
             'quiet': True,
             'extract_flat': True,
@@ -67,16 +69,22 @@ class SoundCloudScraper:
                 for entry in info['entries']:
                     if not entry:
                         continue
+                    dur = entry.get('duration') or 0
+                    # Skip 30-second DRM previews unless track is legitimately a jingle
+                    if dur == 30.0:
+                        continue
                     results.append({
                         'id': entry.get('id'),
-                        'url': entry.get('url'),
+                        'url': entry.get('webpage_url') or entry.get('url'),
                         'title': entry.get('title'),
                         'uploader': entry.get('uploader'),
                         'uploader_url': entry.get('uploader_url'),
-                        'duration': entry.get('duration', 0),
+                        'duration': dur,
                         'thumbnail': entry.get('thumbnail'),
                         'view_count': entry.get('view_count', 0),
                     })
+                    if len(results) >= limit:
+                        break
             return results
 
     def get_artist_or_playlist_tracks(self, url_or_artist: str, limit: int = 20) -> List[str]:
