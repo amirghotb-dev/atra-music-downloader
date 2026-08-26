@@ -42,17 +42,12 @@ def main():
             print("[ERROR] Please provide a SoundCloud URL or search query.")
             sys.exit(1)
 
-        urls = []
-        if target.startswith("http://") or target.startswith("https://"):
-            urls.append(target)
-        else:
-            print(f"[*] Searching and fetching top {args.limit} results for: '{target}'...")
-            results = scraper.search(target, limit=args.limit)
-            urls = [r['url'] for r in results if r.get('url')]
+        print(f"[*] Fetching batch of up to {args.limit} tracks for: '{target}'...")
+        urls = scraper.get_artist_or_playlist_tracks(target, limit=args.limit)
 
-        print(f"[*] Found {len(urls)} items to process.\n")
-        for url in urls:
-            print(f"[-] Processing: {url}")
+        print(f"[*] Found {len(urls)} tracks to process.\n")
+        for idx, url in enumerate(urls, 1):
+            print(f"[{idx}/{len(urls)}] Processing: {url}")
             track_info = scraper.download_track(url)
             if not track_info:
                 print(f"[X] Failed to download {url}\n")

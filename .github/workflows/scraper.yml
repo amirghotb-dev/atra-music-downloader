@@ -35,7 +35,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install yt-dlp requests
+          pip install -U "yt-dlp[default]" requests curl_cffi
 
       - name: Run Scraper & Upload to Telegram + Site API
         env:

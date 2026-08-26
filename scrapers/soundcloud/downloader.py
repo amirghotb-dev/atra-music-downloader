@@ -57,11 +57,13 @@ class SoundCloudScraper:
             'quiet': True,
             'extract_flat': True,
             'skip_download': True,
+            'ignoreerrors': True,
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(search_query, download=False)
             results = []
-            if 'entries' in info:
+            if info and 'entries' in info:
                 for entry in info['entries']:
                     if not entry:
                         continue
@@ -77,17 +79,61 @@ class SoundCloudScraper:
                     })
             return results
 
+    def get_artist_or_playlist_tracks(self, url_or_artist: str, limit: int = 20) -> List[str]:
+        """
+        Extracts a batch list of track URLs from a SoundCloud Artist profile,
+        Tracks page, Playlist or search query.
+        """
+        urls = []
+        if url_or_artist.startswith("http://") or url_or_artist.startswith("https://"):
+            target_url = url_or_artist.rstrip("/")
+            if "/tracks" not in target_url and "/sets" not in target_url:
+                target_url = f"{target_url}/tracks"
+
+            ydl_opts = {
+                'quiet': True,
+                'extract_flat': True,
+                'skip_download': True,
+                'ignoreerrors': True,
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(target_url, download=False)
+                    if info and 'entries' in info:
+                        for entry in info['entries'][:limit]:
+                            if entry and entry.get('url'):
+                                urls.append(entry['url'])
+            except Exception as e:
+                print(f"[WARN] Error extracting artist tracks URL: {e}")
+
+        # Fallback to search query if no URLs found or input was an artist name
+        if not urls:
+            results = self.search(url_or_artist, limit=limit)
+            urls = [r['url'] for r in results if r.get('url')]
+
+        return urls
+
     def extract_track_info(self, url: str) -> Optional[Dict[str, Any]]:
         """Extracts complete track details and HD artwork from SoundCloud URL."""
         ydl_opts = {
             'quiet': True,
             'skip_download': True,
+            'ignoreerrors': True,
+            'extract_flat': 'in_playlist',
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(url, download=False)
                 if not info:
                     return None
+
+                # If the URL is a playlist or artist profile with entries, take the first entry or flatten
+                if 'entries' in info and info['entries']:
+                    info = next((e for e in info['entries'] if e), None)
+                    if not info:
+                        return None
 
                 raw_title = info.get('title', '')
                 uploader = info.get('uploader') or info.get('artist') or 'Unknown Artist'
@@ -129,6 +175,7 @@ class SoundCloudScraper:
         if not info:
             return None
 
+        actual_url = info.get('url') or url
         slug_base = filename_prefix or self.slugify(f"{info['artist_name']}-{info['title']}")
         audio_filename = f"{slug_base}.mp3"
         cover_filename = f"{slug_base}.jpg"
@@ -146,7 +193,7 @@ class SoundCloudScraper:
             except Exception as e:
                 print(f"[WARN] Failed to download cover: {e}")
 
-        # 2. Download MP3 Audio
+        # 2. Download MP3 Audio with multiple format fallbacks
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(self.download_audio_dir, f"{slug_base}.%(ext)s"),
@@ -157,13 +204,15 @@ class SoundCloudScraper:
             }],
             'quiet': True,
             'no_warnings': True,
+            'ignoreerrors': True,
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         }
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+                ydl.download([actual_url])
         except Exception as e:
-            print(f"[ERROR] Downloading audio {url}: {e}")
+            print(f"[ERROR] Downloading audio {actual_url}: {e}")
             return None
 
         info['local_audio_path'] = audio_path
