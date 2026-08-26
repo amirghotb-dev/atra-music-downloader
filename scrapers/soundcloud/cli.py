@@ -2,14 +2,16 @@ import argparse
 import sys
 import os
 from downloader import SoundCloudScraper
+from youtube_scraper import YouTubeMusicScraper
 from sync_laravel import LaravelDbSyncer
 from telegram_uploader import TelegramUploader
 from api_syncer import AtraApiSyncer
 
 def main():
-    parser = argparse.ArgumentParser(description="SoundCloud Persian Music Scraper with Telegram Storage & Website API Sync")
+    parser = argparse.ArgumentParser(description="SoundCloud & YouTube Music Persian Scraper with Telegram Storage & Website API Sync")
     parser.add_argument("action", choices=["search", "download", "sync", "discover", "telegram-sync"], help="Action to perform")
-    parser.add_argument("target", nargs="?", default="", help="Query or URL")
+    parser.add_argument("target", nargs="?", default="", help="YouTube Music URL, SoundCloud URL, or Search Query")
+    parser.add_argument("--source", choices=["auto", "youtube", "soundcloud"], default="auto", help="Platform source")
     parser.add_argument("--limit", type=int, default=5, help="Number of items to fetch/download")
     parser.add_argument("--db", default=".data/music.db", help="Path to SQLite database")
     parser.add_argument("--telegram-token", default=os.getenv("TELEGRAM_BOT_TOKEN"), help="Telegram Bot Token")
@@ -19,17 +21,27 @@ def main():
 
     args = parser.parse_args()
 
-    scraper = SoundCloudScraper(
-        download_audio_dir="public/storage/tracks",
-        download_cover_dir="public/storage/covers"
-    )
+    # Determine scraper backend
+    is_yt = "youtube.com" in args.target or "youtu.be" in args.target or args.source == "youtube"
+    if is_yt or args.source == "auto":
+        # Default to YouTube Music for higher quality and no DRM locks
+        scraper = YouTubeMusicScraper(
+            download_audio_dir="public/storage/tracks",
+            download_cover_dir="public/storage/covers"
+        )
+    else:
+        scraper = SoundCloudScraper(
+            download_audio_dir="public/storage/tracks",
+            download_cover_dir="public/storage/covers"
+        )
+
     syncer = LaravelDbSyncer(db_path=args.db)
     tg_uploader = TelegramUploader(bot_token=args.telegram_token, channel_id=args.telegram_chat)
     api_syncer = AtraApiSyncer(api_base_url=args.api_url, api_secret=args.api_secret)
 
     if args.action == "search":
         query = args.target or "persian music 2026"
-        print(f"[*] Searching SoundCloud for: '{query}' (limit: {args.limit})...\n")
+        print(f"[*] Searching for: '{query}' (limit: {args.limit})...\n")
         results = scraper.search(query, limit=args.limit)
         for i, item in enumerate(results, 1):
             print(f"{i}. [{item['id']}] {item['title']}")
@@ -39,11 +51,14 @@ def main():
     elif args.action in ["download", "sync", "telegram-sync"]:
         target = args.target
         if not target:
-            print("[ERROR] Please provide a SoundCloud URL or search query.")
+            print("[ERROR] Please provide a URL or search query.")
             sys.exit(1)
 
         print(f"[*] Fetching batch of up to {args.limit} tracks for: '{target}'...")
-        urls = scraper.get_artist_or_playlist_tracks(target, limit=args.limit)
+        if hasattr(scraper, 'get_tracks'):
+            urls = scraper.get_tracks(target, limit=args.limit)
+        else:
+            urls = scraper.get_artist_or_playlist_tracks(target, limit=args.limit)
 
         print(f"[*] Found {len(urls)} tracks to process.\n")
         for idx, url in enumerate(urls, 1):

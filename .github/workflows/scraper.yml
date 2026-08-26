@@ -8,9 +8,9 @@ on:
     # Allows manual run from GitHub UI with custom search query or URL
     inputs:
       target:
-        description: 'SoundCloud URL or Search Query (e.g. "Shadmehr" or "persian pop 2026")'
+        description: 'YouTube Music URL, Artist URL, SoundCloud, or Search Query (e.g. "https://music.youtube.com/@chavoshiofficial" or "Mohsen Chavoshi")'
         required: true
-        default: 'persian music 2026'
+        default: 'https://music.youtube.com/@chavoshiofficial'
       limit:
         description: 'Number of tracks to scrape and upload'
         required: false

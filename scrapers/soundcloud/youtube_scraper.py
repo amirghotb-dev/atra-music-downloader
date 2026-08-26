@@ -5,7 +5,7 @@ import requests
 import yt_dlp
 from typing import Dict, Any, Optional, List
 
-class SoundCloudScraper:
+class YouTubeMusicScraper:
     def __init__(self, download_audio_dir: str = "public/storage/tracks", download_cover_dir: str = "public/storage/covers"):
         self.download_audio_dir = download_audio_dir
         self.download_cover_dir = download_cover_dir
@@ -22,45 +22,37 @@ class SoundCloudScraper:
 
     @staticmethod
     def clean_title_and_artist(raw_title: str, uploader: str) -> Dict[str, str]:
-        """
-        Parses title and artist name intelligently.
-        Handles cases like: 'Shadmehr Aghili - Taghdir [Remix]' or 'Ali Yasini | Jang'
-        """
-        # Remove noisy suffixes
-        cleaned = re.sub(r'(?i)\b(320|128|kbps|remix|official audio|full album|podcast|music video|lyric video|prod\s*by.*)\b', '', raw_title)
+        """Parses clean title, artist name, and strips YouTube noise tags."""
+        cleaned = re.sub(r'(?i)\b(official music video|official audio|music video|lyric video|audio|remix|hd|4k|320kbps|128kbps|album version|visualizer)\b', '', raw_title)
         cleaned = re.sub(r'[\[\]\(\)\{\}]', ' ', cleaned)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip(' -_|:')
 
-        artist = uploader
+        uploader_clean = re.sub(r'(?i)(\s*-\s*topic|\s*official|\s*channel|\s*music)', '', uploader).strip()
+        artist = uploader_clean or uploader
         title = cleaned
 
-        # Check delimiters like " - ", " : ", " | "
         for delimiter in [' - ', ' : ', ' | ']:
             if delimiter in cleaned:
                 parts = [p.strip() for p in cleaned.split(delimiter, 1)]
                 if len(parts) == 2 and parts[0] and parts[1]:
-                    # Usually artist is first, or title is first
-                    # If uploader is in part[0], then part[0]=artist, part[1]=title
                     artist = parts[0]
                     title = parts[1]
                     break
 
         return {
             "title": title.strip() or raw_title,
-            "artist": artist.strip() or uploader
+            "artist": artist.strip() or uploader_clean
         }
 
     def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search SoundCloud tracks by query using yt-dlp extractor, filtering out DRM previews."""
-        # Fetch slightly more to filter out 30-second SoundCloud Go+ DRM previews
-        fetch_limit = min(limit * 3, 50)
-        search_query = f"scsearch{fetch_limit}:{query}"
+        """Searches YouTube Music / YouTube with yt-dlp."""
+        search_query = f"ytsearch{limit}:{query} audio"
         ydl_opts = {
             'quiet': True,
             'extract_flat': True,
             'skip_download': True,
             'ignoreerrors': True,
-            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(search_query, download=False)
@@ -69,75 +61,93 @@ class SoundCloudScraper:
                 for entry in info['entries']:
                     if not entry:
                         continue
-                    dur = entry.get('duration') or 0
-                    # Skip 30-second DRM previews unless track is legitimately a jingle
-                    if dur == 30.0:
-                        continue
                     results.append({
                         'id': entry.get('id'),
-                        'url': entry.get('webpage_url') or entry.get('url'),
+                        'url': entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
                         'title': entry.get('title'),
-                        'uploader': entry.get('uploader'),
-                        'uploader_url': entry.get('uploader_url'),
-                        'duration': dur,
-                        'thumbnail': entry.get('thumbnail'),
-                        'view_count': entry.get('view_count', 0),
+                        'uploader': entry.get('uploader') or entry.get('channel'),
+                        'duration': entry.get('duration') or 0,
                     })
-                    if len(results) >= limit:
-                        break
             return results
 
-    def get_artist_or_playlist_tracks(self, url_or_artist: str, limit: int = 20) -> List[str]:
+    def get_tracks(self, url_or_query: str, limit: int = 20) -> List[str]:
         """
-        Extracts a batch list of track URLs from a SoundCloud Artist profile,
-        Tracks page, Playlist or search query.
+        Extracts track URLs from a YouTube channel/artist (both Songs and Music Videos),
+        playlists, releases or search queries.
         """
         urls = []
-        is_url = url_or_artist.startswith("http://") or url_or_artist.startswith("https://")
+        is_url = url_or_query.startswith("http://") or url_or_query.startswith("https://")
 
         if is_url:
-            target_url = url_or_artist.rstrip("/")
-            if "/tracks" not in target_url and "/sets" not in target_url:
-                target_url = f"{target_url}/tracks"
+            target_url = url_or_query
+            if "music.youtube.com" in target_url:
+                target_url = target_url.replace("music.youtube.com", "www.youtube.com")
 
             ydl_opts = {
                 'quiet': True,
                 'extract_flat': True,
                 'skip_download': True,
                 'ignoreerrors': True,
-                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
             }
+
+            # If user provided a Channel root like /@chavoshiofficial
+            # Extract both from /videos (Music Videos) and /releases (Official Songs & Albums)
+            targets_to_scan = []
+            if "/@" in target_url and not any(sub in target_url for sub in ["/videos", "/releases", "/playlists"]):
+                targets_to_scan.append(f"{target_url.rstrip('/')}/videos")
+                targets_to_scan.append(f"{target_url.rstrip('/')}/releases")
+            else:
+                targets_to_scan.append(target_url)
+
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(target_url, download=False)
-                    if info and 'entries' in info:
-                        for entry in info['entries']:
-                            if entry and entry.get('url'):
-                                urls.append(entry['url'])
-                            if len(urls) >= limit:
-                                break
-            except Exception as e:
-                print(f"[WARN] Error extracting artist tracks URL: {e}")
+                    for scan_url in targets_to_scan:
+                        if len(urls) >= limit:
+                            break
+                        info = ydl.extract_info(scan_url, download=False)
+                        if info and 'entries' in info:
+                            for entry in info['entries']:
+                                if not entry:
+                                    continue
+                                
+                                entry_url = entry.get('url') or (f"https://www.youtube.com/watch?v={entry.get('id')}" if entry.get('id') else None)
+                                
+                                # If entry is a release/album/playlist, extract sub-tracks
+                                if entry.get('_type') == 'playlist' or (entry_url and 'playlist' in entry_url):
+                                    try:
+                                        sub_info = ydl.extract_info(entry_url, download=False)
+                                        if sub_info and 'entries' in sub_info:
+                                            for sub_entry in sub_info['entries']:
+                                                sub_u = sub_entry.get('url') or (f"https://www.youtube.com/watch?v={sub_entry.get('id')}" if sub_entry.get('id') else None)
+                                                if sub_u and sub_u not in urls:
+                                                    urls.append(sub_u)
+                                                if len(urls) >= limit:
+                                                    break
+                                    except Exception:
+                                        pass
+                                elif entry_url and entry_url not in urls:
+                                    urls.append(entry_url)
 
-        # Search query mode: searches SoundCloud tracks directly
+                                if len(urls) >= limit:
+                                    break
+            except Exception as e:
+                print(f"[WARN] Error extracting YouTube Music URLs: {e}")
+
+        # Fallback to search query
         if not urls:
-            search_query = url_or_artist
-            if is_url:
-                search_query = url_or_artist.rstrip('/').split('/')[-1].replace('-', ' ')
-            print(f"[*] Searching SoundCloud for tracks matching: '{search_query}' (limit: {limit})...")
-            results = self.search(search_query, limit=limit)
+            results = self.search(url_or_query, limit=limit)
             urls = [r['url'] for r in results if r.get('url')]
 
-        return urls
+        return urls[:limit]
 
     def extract_track_info(self, url: str) -> Optional[Dict[str, Any]]:
-        """Extracts complete track details and HD artwork from SoundCloud URL."""
+        """Extracts audio metadata and max-res cover art from YouTube."""
         ydl_opts = {
             'quiet': True,
             'skip_download': True,
             'ignoreerrors': True,
-            'extract_flat': 'in_playlist',
-            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
@@ -145,48 +155,49 @@ class SoundCloudScraper:
                 if not info:
                     return None
 
-                # If the URL is a playlist or artist profile with entries, take the first entry or flatten
-                if 'entries' in info and info['entries']:
-                    info = next((e for e in info['entries'] if e), None)
-                    if not info:
-                        return None
-
                 raw_title = info.get('title', '')
-                uploader = info.get('uploader') or info.get('artist') or 'Unknown Artist'
+                uploader = info.get('uploader') or info.get('channel') or info.get('artist') or 'Unknown Artist'
                 parsed = self.clean_title_and_artist(raw_title, uploader)
 
-                # Get High Definition artwork
+                # Highest quality thumbnail
                 thumbnail = info.get('thumbnail')
-                if thumbnail:
-                    # Upgrade SoundCloud artwork to 500x500
-                    thumbnail = re.sub(r'-(large|t\d+x\d+|badge)\.', '-t500x500.', thumbnail)
+                if 'thumbnails' in info and info['thumbnails']:
+                    # Sort thumbnails by resolution
+                    thumbnails = sorted(info['thumbnails'], key=lambda x: x.get('width', 0) or 0, reverse=True)
+                    if thumbnails:
+                        thumbnail = thumbnails[0].get('url')
 
                 duration = int(info.get('duration') or 0)
                 likes = int(info.get('like_count') or 0)
                 views = int(info.get('view_count') or 0)
-                genre = info.get('genre') or 'Persian'
+                genre = info.get('genre') or 'Persian Pop'
+                description = info.get('description', '')
+
+                source_id = str(info.get('id'))
+                webpage_url = info.get('webpage_url') or f"https://www.youtube.com/watch?v={source_id}"
 
                 return {
-                    'source_id': str(info.get('id')),
-                    'url': info.get('webpage_url') or url,
+                    'source_id': source_id,
+                    'url': webpage_url,
+                    'video_url': webpage_url,
                     'title': parsed['title'],
                     'raw_title': raw_title,
                     'artist_name': parsed['artist'],
                     'uploader': uploader,
-                    'uploader_id': info.get('uploader_id'),
                     'duration': duration,
                     'cover_url': thumbnail,
                     'stream_count': views,
                     'likes_count': likes,
                     'genre': genre,
-                    'description': info.get('description', ''),
+                    'description': description,
+                    'lyrics': description if ('متن' in description or 'ترانه' in description or 'lyrics' in description.lower()) else ''
                 }
             except Exception as e:
                 print(f"[ERROR] Extracting info for {url}: {e}")
                 return None
 
     def download_track(self, url: str, filename_prefix: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Downloads the audio file as MP3 (320k) and retrieves high-res cover."""
+        """Downloads audio as 320k MP3 and retrieves cover art."""
         info = self.extract_track_info(url)
         if not info:
             return None
@@ -199,7 +210,7 @@ class SoundCloudScraper:
         audio_path = os.path.join(self.download_audio_dir, audio_filename)
         cover_path = os.path.join(self.download_cover_dir, cover_filename)
 
-        # 1. Download Cover Image
+        # 1. Download Cover Artwork
         if info.get('cover_url') and not os.path.exists(cover_path):
             try:
                 resp = requests.get(info['cover_url'], timeout=15)
@@ -209,7 +220,7 @@ class SoundCloudScraper:
             except Exception as e:
                 print(f"[WARN] Failed to download cover: {e}")
 
-        # 2. Download MP3 Audio with multiple format fallbacks
+        # 2. Download MP3 Audio
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(self.download_audio_dir, f"{slug_base}.%(ext)s"),
@@ -228,11 +239,11 @@ class SoundCloudScraper:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([actual_url])
         except Exception as e:
-            print(f"[ERROR] Downloading audio {actual_url}: {e}")
+            print(f"[ERROR] Downloading YouTube audio {actual_url}: {e}")
             return None
 
         if not os.path.exists(audio_path):
-            print(f"[ERROR] Audio file was not created (likely SoundCloud Go+ DRM protected): {audio_path}")
+            print(f"[ERROR] Audio file not found at {audio_path}")
             return None
 
         info['local_audio_path'] = audio_path

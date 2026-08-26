@@ -22,6 +22,7 @@ class AtraApiSyncer:
             "artist_name": track_data.get("artist_name"),
             "slug": track_data.get("slug"),
             "audio_url": track_data.get("audio_url"),
+            "video_url": track_data.get("video_url"),
             "cover_image": track_data.get("cover_image"),
             "duration": track_data.get("duration", 0),
             "stream_count": track_data.get("stream_count", 0),
