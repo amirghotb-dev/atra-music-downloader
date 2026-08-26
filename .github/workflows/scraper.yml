@@ -16,9 +16,15 @@ on:
         required: false
         default: '5'
 
+# Cancel previous queued or stuck runs if a new one is triggered
+concurrency:
+  group: music-scraper-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scrape-and-upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
