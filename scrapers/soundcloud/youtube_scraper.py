@@ -220,7 +220,15 @@ class YouTubeMusicScraper:
             except Exception as e:
                 print(f"[WARN] Failed to download cover: {e}")
 
-        # 2. Download MP3 Audio
+        # 2. Download MP3 Audio using mobile/tv client profiles or cookie if provided
+        cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "cookies.txt")
+        cookies_content = os.getenv("YOUTUBE_COOKIES")
+
+        if cookies_content and not os.path.exists("cookies.txt"):
+            with open("cookies.txt", "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+            cookies_file = "cookies.txt"
+
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(self.download_audio_dir, f"{slug_base}.%(ext)s"),
@@ -232,8 +240,16 @@ class YouTubeMusicScraper:
             'quiet': False,
             'no_warnings': False,
             'ignoreerrors': False,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'web', 'tv']
+                }
+            },
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
         }
+
+        if os.path.exists(cookies_file):
+            ydl_opts['cookiefile'] = cookies_file
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
