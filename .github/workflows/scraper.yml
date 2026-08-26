@@ -46,7 +46,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install -U "yt-dlp[default]" requests curl_cffi mutagen
+          pip install -U "yt-dlp[default]" requests curl_cffi mutagen beautifulsoup4
 
       - name: Run Scraper & Upload to Telegram + Site API
         env:
